@@ -6,16 +6,43 @@ import regex
 import multiprocessing
 # multiprocessing.set_start_method('spawn', True)
 
-class PlaylistDownloader(object):
 
-    def __init__(self, archiveFile, mergedProgressFile, mergedVideoFile, downloadFolder, convertFolder, trimmedFolder, renameFolder, videoFormats, audioFormats, playlist, renameRegex, trailerName, startSkip, endSkip, playlistStart, playlistEnd):
-        self.archiveFile = archiveFile
-        self.mergedProgressFile = mergedProgressFile
+class PlaylistDownloader(object):
+    """
+        
+    :param workingFolder: The path to the folder all the intermediary data will be stored
+    :type workingFolder: str
+    :param mergedVideoFile: The path to where the output merged mkv will be placed
+    :type mergedVideoFile: str
+    :param videoFormats: The list of youtube-dl video formats that are accepted, in perference order. Newly uploaded videos may start in low quaility and then may later gain higher quality (this library doesn't redownload)
+    :type videoFormats: [str]
+    :param audioFormats:  The list of youtube-dl audio formats that are accepted, in perference order. Newly uploaded videos may start in low quaility and then may later gain higher quality (this library doesn't redownload)
+    :type audioFormats: [str]
+    :param playlist: The youtube playlist url
+    :type playlist: str
+    :param renameRegex: A regex used to generate chapter titles and order videos. It must have Number and Name capture groups. Videos are ordered by sorting the Number group as a float.
+    :type renameRegex: regex
+    :param trailerName: If the playlist has a trailer that doesn't follow normal naming convention it's filename should be specified here.
+    :type trailerName: str, optional
+    :param startSkip: The number of seconds to skip at the start of each video, defaults to 0
+    :type startSkip: float, optional
+    :param endSkip: The number of seconds to skip at the end of each video, defaults to 0
+    :type endSkip: float, optional
+    :param playlistStart: Which video to start downloading at, defaults to 1
+    :type playlistStart: int, optional
+    :param playlistEnd: Which video to stop downloading at, defaults to None
+    :type playlistEnd: int, optional
+    """
+
+    def __init__(self, workingFolder, mergedVideoFile, videoFormats, audioFormats, playlist, renameRegex, trailerName=None, startSkip=0, endSkip=0, playlistStart=1, playlistEnd=None):
+        self.workingFolder = workingFolder
+        self.archiveFile = os.path.join(workingFolder, "progress")
+        self.mergedProgressFile = os.path.join(workingFolder, "merged")
+        self.downloadFolder = os.path.join(workingFolder, "downloads")
+        self.convertFolder = os.path.join(workingFolder, "convert")
+        self.trimmedFolder = os.path.join(workingFolder, "trimmed")
+        self.renameFolder = os.path.join(workingFolder, "renamed")
         self.mergedVideoFile = mergedVideoFile
-        self.downloadFolder = downloadFolder
-        self.convertFolder = convertFolder
-        self.trimmedFolder = trimmedFolder
-        self.renameFolder = renameFolder
         self.videoFormats = videoFormats
         self.audioFormats = audioFormats
         self.playlist = playlist
@@ -30,11 +57,14 @@ class PlaylistDownloader(object):
         return "/".join(map(lambda x: f'({x[0]}+{x[1]})', itertools.product(self.videoFormats, self.audioFormats)))
 
     def __runDownload(self):
-        start = ["--playlist-start", str(self.playlistStart)] if self.playlistStart > 1 else []
-        end = ["--playlist-end", str(self.playlistEnd)] if self.playlistEnd != -1 else []
-        result = subprocess.run(["youtube-dl", "--download-archive", os.path.abspath(self.archiveFile), "--format", self.__getFormatString()] + start + end + [self.playlist], cwd=self.downloadFolder)
+        start = ["--playlist-start",
+                 str(self.playlistStart)] if self.playlistStart != 1 else []
+        end = ["--playlist-end", str(self.playlistEnd)
+               ] if self.playlistEnd != None else []
+        result = subprocess.run(["youtube-dl", "--download-archive", os.path.abspath(self.archiveFile),
+                                 "--format", self.__getFormatString()] + start + end + [self.playlist], cwd=self.downloadFolder)
         result.check_returncode()
-        
+
     def __getDownloadedFiles(self):
         filenames = os.listdir(self.downloadFolder)
         for name in filenames:
@@ -43,11 +73,12 @@ class PlaylistDownloader(object):
             yield {"filename": name, "path": os.path.join(self.downloadFolder, name), "convertPath": self.__getConvertOutputPath(name), "trimmedPath": self.__getTrimmedOutputPath(name)}
 
     def __getMediaFormat(self, path):
-        process = subprocess.run(["ffprobe", "-show_entries", "stream=codec_name,codec_type", "-print_format", "json", path], capture_output=True)
+        process = subprocess.run(["ffprobe", "-show_entries", "stream=codec_name,codec_type",
+                                  "-print_format", "json", path], capture_output=True)
         output = json.loads(process.stdout)
-        result = {stream["codec_type"]: stream["codec_name"] for stream in output["streams"]}
+        result = {stream["codec_type"]: stream["codec_name"]
+                  for stream in output["streams"]}
         return result
-
 
     def __getConvertOutputPath(self, name):
         outfileName = os.path.splitext(name)[0] + ".webm"
@@ -61,12 +92,15 @@ class PlaylistDownloader(object):
     def _convert(self, fileData):
         media = self.__getMediaFormat(fileData["path"])
         if media["audio"] == "opus" and media["video"] == "vp9":
-            os.symlink(os.path.relpath(fileData["path"], self.convertFolder), fileData["convertPath"])
+            os.symlink(os.path.relpath(
+                fileData["path"], self.convertFolder), fileData["convertPath"])
         else:
             audioFlag = "copy" if media["audio"] == "opus" else "libopus"
-            videoOptions = ["-vcodec", "copy"] if media["video"] == "vp9" else ["-vcodec", "libvpx-vp9", "-crf", "31", "-b:v", "0", "-row-mt", "1"]
+            videoOptions = ["-vcodec", "copy"] if media["video"] == "vp9" else [
+                "-vcodec", "libvpx-vp9", "-crf", "31", "-b:v", "0", "-row-mt", "1"]
             tempPath = fileData["convertPath"] + ".partial"
-            subprocess.run(["ffmpeg", "-i", fileData["path"], "-f", "webm", "-y", "-acodec", audioFlag] + videoOptions + [tempPath])
+            subprocess.run(["ffmpeg", "-i", fileData["path"], "-f", "webm",
+                            "-y", "-acodec", audioFlag] + videoOptions + [tempPath])
             os.rename(tempPath, fileData["convertPath"])
 
     def __getTrimmedOutputPath(self, name):
@@ -75,7 +109,8 @@ class PlaylistDownloader(object):
         return output
 
     def __getFileDuration(self, path):
-        process = subprocess.run(["ffprobe", "-show_entries", "format=duration", "-print_format", "json", path], capture_output=True)
+        process = subprocess.run(["ffprobe", "-show_entries", "format=duration",
+                                  "-print_format", "json", path], capture_output=True)
         output = json.loads(process.stdout)
         return float(output["format"]["duration"])
 
@@ -84,15 +119,17 @@ class PlaylistDownloader(object):
         if os.path.exists(fileData["trimmedPath"]):
             return
         if self.startSkip == 0 and self.endSkip == 0:
-            os.symlink(os.path.relpath(fileData["convertPath"], self.trimmedFolder), fileData["trimmedPath"])
+            os.symlink(os.path.relpath(
+                fileData["convertPath"], self.trimmedFolder), fileData["trimmedPath"])
             return
-        startFlags = ["-ss", str(self.startSkip)] if self.startSkip > 0 else []
+        startFlags = ["-ss", str(self.startSkip)] if self.startSkip != 0 else []
         endFlags = []
-        if self.endSkip > 0:
+        if self.endSkip != 0:
             duration = self.__getFileDuration(fileData["convertPath"])
             endFlags = ["-to", str(duration - self.endSkip)]
         tempPath = fileData["trimmedPath"] + ".partial"
-        subprocess.run(["ffmpeg", "-i", fileData["convertPath"]] + startFlags + endFlags + ["-c", "copy", "-y", "-f", "webm", tempPath])
+        subprocess.run(["ffmpeg", "-i", fileData["convertPath"]] + startFlags +
+                       endFlags + ["-c", "copy", "-y", "-f", "webm", tempPath])
         os.rename(tempPath, fileData["trimmedPath"])
 
     def __rename(self, fileData):
@@ -104,7 +141,8 @@ class PlaylistDownloader(object):
             number = float(matches["Number"])
             rename = f'{matches["Number"]} - {matches["Name"]}.webm'
         output = os.path.join(self.renameFolder, rename)
-        os.symlink(os.path.relpath(fileData["trimmedPath"], self.renameFolder), output)
+        os.symlink(os.path.relpath(
+            fileData["trimmedPath"], self.renameFolder), output)
         return {"name": rename, "path": output, "number": number}
 
     def __needToMerge(self, files):
@@ -140,10 +178,13 @@ class PlaylistDownloader(object):
         os.makedirs(self.renameFolder, exist_ok=True)
 
     def run(self):
+        """Starts the download/convert/trim/merge process
+        """        
         self.__setupFolders()
         self.__runDownload()
         files = list(self.__getDownloadedFiles())
-        toBeConverted = filter(lambda file: not self.__isFileConverted(file), files)
+        toBeConverted = filter(
+            lambda file: not self.__isFileConverted(file), files)
         with multiprocessing.Pool() as pool:
             pool.map(self._convert, toBeConverted)
             pool.map(self._trimIfNeeded, files)
@@ -153,4 +194,3 @@ class PlaylistDownloader(object):
         renamed.sort(key=lambda x: x["number"])
         if self.__needToMerge(renamed):
             self.__merge(renamed)
-

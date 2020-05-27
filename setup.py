@@ -23,4 +23,7 @@ setuptools.setup(
     ],
     python_requires='>=3',
     install_requires=['regex'],
+    extras_require={
+        "docs":  ["sphinx-rtd-theme"],
+    }
 )

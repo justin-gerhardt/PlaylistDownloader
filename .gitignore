@@ -2,3 +2,5 @@
 .vscode/
 
 PlaylistDownloader/__pycache__/
+
+docs/build/
