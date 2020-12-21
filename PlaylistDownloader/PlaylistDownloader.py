@@ -32,9 +32,11 @@ class PlaylistDownloader(object):
     :type playlistStart: int, optional
     :param playlistEnd: Which video to stop downloading at, defaults to None
     :type playlistEnd: int, optional
+    :param youtubeDLOptions: extra options to pass to youtube-dl, defaults to None
+    :type youtubeDLOptions: array, optional
     """
 
-    def __init__(self, workingFolder, mergedVideoFile, videoFormats, audioFormats, playlist, renameRegex, trailerName=None, startSkip=0, endSkip=0, playlistStart=1, playlistEnd=None):
+    def __init__(self, workingFolder, mergedVideoFile, videoFormats, audioFormats, playlist, renameRegex, trailerName=None, startSkip=0, endSkip=0, playlistStart=1, playlistEnd=None, youtubeDLOptions=[]):
         self.workingFolder = workingFolder
         self.archiveFile = os.path.join(workingFolder, "progress")
         self.mergedProgressFile = os.path.join(workingFolder, "merged")
@@ -52,6 +54,8 @@ class PlaylistDownloader(object):
         self.endSkip = endSkip
         self.playlistStart = playlistStart
         self.playlistEnd = playlistEnd
+        self.youtubeDLOptions = youtubeDLOptions
+
 
     def __getFormatString(self):
         return "/".join(map(lambda x: f'({x[0]}+{x[1]})', itertools.product(self.videoFormats, self.audioFormats)))
@@ -62,7 +66,7 @@ class PlaylistDownloader(object):
         end = ["--playlist-end", str(self.playlistEnd)
                ] if self.playlistEnd != None else []
         result = subprocess.run(["youtube-dl", "--download-archive", os.path.abspath(self.archiveFile),
-                                 "--format", self.__getFormatString()] + start + end + [self.playlist], cwd=self.downloadFolder)
+                                 "--format", self.__getFormatString()] + start + end + self.youtubeDLOptions + [self.playlist], cwd=self.downloadFolder)
         result.check_returncode()
 
     def __getDownloadedFiles(self):
